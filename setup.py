@@ -5,10 +5,7 @@
 import sys
 from setuptools import setup, find_packages
 
-version = __import__('cliapp').__version__
-if 'cliapp' in sys.modules:
-    ## Unload to prevent issues with Py3k/2to3 built code
-    del sys.modules['cliapp']
+version = '0.1'
 
 extra = {}
 if sys.version_info >= (3,):
