@@ -10,6 +10,12 @@ if 'cliapp' in sys.modules:
     ## Unload to prevent issues with Py3k/2to3 built code
     del sys.modules['cliapp']
 
+extra = {}
+if sys.version_info >= (3,):
+    extra['use_2to3'] = True
+    #extra['convert_2to3_doctests'] = ['src/your/module/README.txt']
+    #extra['use_2to3_fixers'] = ['your.fixers']
+
 test_requires = []
 if sys.version_info < (2, 7):
     test_requires.append('unittest2')
@@ -41,5 +47,5 @@ setup(
     test_requires=test_requires,
     test_suite='cliapp.tests',
 
-    ## todo: add py3k stuff
+    **extra
 )
