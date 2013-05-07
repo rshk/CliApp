@@ -19,7 +19,7 @@ options and arguments to be passed to the command.
 
 Example usage:
 
-.. code-block: python
+.. code-block:: python
 
     from cliapp import CliApp
 
