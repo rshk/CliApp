@@ -2,11 +2,12 @@
 CliApp
 ##########
 
-:Build status:
-    .. image:: https://travis-ci.org/rshk/CliApp.png
-        :alt: Build status
-        :target: https://travis-ci.org/rshk/CliApp
+.. image:: https://travis-ci.org/rshk/CliApp.png
+    :alt: Build status
+    :target: https://travis-ci.org/rshk/CliApp
+    :align: right
 
+:Build status:
 :Version: 0.1
 :Author: Samuele Santi
 
