@@ -7,7 +7,6 @@ CliApp
     :target: https://travis-ci.org/rshk/CliApp
     :align: right
 
-:Build status:
 :Version: 0.1
 :Author: Samuele Santi
 
