@@ -4,6 +4,11 @@ CliApp
 
 :Version: 0.1
 :Author: Samuele Santi
+:Build status:
+    .. image:: https://travis-ci.org/xk0/CliApp.png
+        :alt: Build status
+        :target: https://travis-ci.org/xk0/CliApp
+
 
 Library to ease the creation of CLI applications in Python.
 
