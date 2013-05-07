@@ -8,7 +8,7 @@ Example invokation::
 
     myapp.py --dir=/tmp/hello --async create --force --title="Yeah!" Hello
 
-Getting help:
+Getting help::
 
     myapp.py --help
         Will print help about the application options
@@ -21,6 +21,10 @@ Getting help:
     myapp.py <command> --help
         Will print help about a specific command
 """
+import re
+import sys
+import traceback
+import readline
 
 __version__ = '0.1'
 
@@ -36,16 +40,46 @@ def _indent(text, prefix='    '):
 
 
 class CliApp(object):
-    def __init__(self):
-        self._parser = OptionParser()
+    use_colors = True
+    enable_commands_help = True
+    enable_interactive = True
+    auto_interactive = True
+    complete_key = 'tab'
+    prompt = None
+
+    def __init__(self, use_colors=True, enable_commands_help=True,
+                 enable_interactive=True, auto_interactive=True):
+        self.use_colors = use_colors
+        self.enable_interactive = True
+        self.auto_interactive = auto_interactive and enable_interactive
+        self._opts, self._args = None, None
+
+        if self.prompt is None:
+            if self.use_colors:
+                self.prompt = '\001\033[1;32m\002cliapp>\001\033[0m\002 '
+            else:
+                self.prompt = 'cliapp> '
+
+        ## Prepare the main parser
+        self._parser = OptionParser(usage="%prog [options] <command> [args...]")
         self._parser.disable_interspersed_args()
         self._parser.add_option(
             '--help-commands', dest='X_help_commands', default=False,
             action="store_true", help="Print commands usage help.")
+
+        ## Prepare the commands register
         self._commands = OrderedDict()
 
+        ## Create the "help" command, if instructed to do so
+        if enable_commands_help:
+            self.command(
+                lambda state: self._print_commands_help(),
+                name='help',
+                usage='',
+                help_text="Show commands usage")
+
     def command(self, func=None, name=None, usage=None, help_text=None,
-                 options=None):
+                options=None):
         """
         Register a function as a command.
 
@@ -71,14 +105,11 @@ class CliApp(object):
                 return func(*a, **kw)
             if not callable(func):
                 raise ValueError("function must be callable!")
-            # name = name
-            # if name is None:
-            #     name = func.__name__
             _name = name or func.__name__
             method_proxy.name = _name
             method_proxy.__name__ = _name
             method_proxy.usage = \
-                usage if usage is not None else "[<opts>] [<args>]"
+                usage if usage is not None else ""
             method_proxy.help_text = \
                 help_text if help_text is not None else func.__doc__
             method_proxy.options = options
@@ -94,50 +125,70 @@ class CliApp(object):
             return decorator(func)
         return decorator
 
-    def lookup(self, method):
-        return self._commands[method]
+    def lookup(self, name):
+        try:
+            return self._commands[name]
+        except KeyError:
+            raise CommandNotFound("No such command: {}".format(name))
 
     @property
-    def methods(self):
+    def commands(self):
         return self._commands.iteritems()
+
+    @property
+    def command_names(self):
+        return self._commands.keys()
 
     @property
     def parser(self):
         return self._parser
 
-    def run(self):
-        try:
-            return self._run()
+    def _parse_args(self):
+        self._opts, self._args = self._parser.parse_args()
 
+    @property
+    def opts(self):
+        if self._opts is None:
+            self._parse_args()
+        return self._opts
+
+    @property
+    def args(self):
+        if self._args is None:
+            self._parse_args()
+        return self._args
+
+    def run(self):
+        """Start the application"""
+
+        if len(self.args) == 0 and self.auto_interactive:
+            return self.run_interactive()
+        return self._run_once(self.args)
+
+    def _run_once(self, args):
+        try:
+            return self._run(args)
         except ShowCommandsHelp, e:
             if e.message:
                 print(e.message)
             self._print_commands_help()
-
         except CommandError, e:
             print(e.message)
             return 1
+        except:
+            traceback.print_exc()
+            return 127
 
-    def _run(self):
-        """Run the application"""
-
+    def _run(self, args):
         ## Parse command-line options
-        opts, args = self._parser.parse_args()
-
-        if opts.X_help_commands:
-            self._print_commands_help()
-            return
-
         if len(args) == 0:
-            raise InvalidUsage("A command is required! See --help-commands.")
+            raise InvalidUsage(
+                "A command is required. See ``help`` for more help.")
 
-        command_name = args[0]
-        command_args = args[1:]
+        if self.opts.X_help_commands:
+            raise ShowCommandsHelp
 
-        if opts.X_help_commands or command_name == 'help':
-            self._print_commands_help()
-            return
-
+        command_name, command_args = args[0], args[1:]
         command = self.lookup(command_name)
         parser = OptionParser(
             usage=command.usage,
@@ -149,15 +200,18 @@ class CliApp(object):
         cmd_opts, cmd_args = parser.parse_args(command_args)
 
         state = State(
-            app=self, global_options=opts, command=command_name,
-            options=cmd_opts, arguments=cmd_args)
+            app=self,
+            global_options=self.opts,
+            command=command_name,
+            options=cmd_opts,
+            arguments=cmd_args)
 
         return command(state)
 
     def _print_commands_help(self, args=None):
         if args is None or len(args) == 0:
             print("Accepted commands:\n")
-            for name, command in self.methods:
+            for name, command in self.commands:
                 self._print_command_usage(command)
                 print("")
         else:
@@ -167,15 +221,107 @@ class CliApp(object):
 
     def _print_command_usage(self, command):
         usage = getattr(command, 'usage', None) or ""
-        cmd_usage = "{name} {usage}".format(name=command.name, usage=usage)
+
+        if self.use_colors:
+            usage_fmt = "\033[1m{name}\033[0m {usage}"
+            usage = re.sub(r"<([^>]*)>", "\033[4;36m\\1\033[0m", usage)
+        else:
+            usage_fmt = "{name} {usage}"
+
+        cmd_usage = usage_fmt.format(name=command.name, usage=usage)
         print(cmd_usage)
         if hasattr(command, 'help_text') and command.help_text:
             print(_indent(command.help_text, ' ' * 8))
 
+    ##==========================================================================
+    ## Interactive mode
+    ##==========================================================================
+
+    def custom_completer(self, new_completer):
+        class CustomCompleter(object):
+            def __enter__(self):
+                self.old_completer = readline.get_completer()
+                readline.set_completer(new_completer)
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                readline.set_completer(self.old_completer)
+        return CustomCompleter()
+
+    def run_interactive(self):
+        with self.custom_completer(self.complete):
+            readline.parse_and_bind(self.complete_key + ": complete")
+            while True:
+                try:
+                    result = self._run_interactive_once()
+                    if result is False:
+                        break
+
+                except KeyboardInterrupt:
+                    print "^C"
+
+                except:
+                    traceback.print_exc()
+
+    def _run_interactive_once(self):
+        try:
+            line = raw_input(self.prompt)
+            line = line.strip()
+        except EOFError:
+            print "EOF"
+            return False
+        if line:
+            parsed = self._parse_line(line)
+            if len(parsed) and parsed[0] in ('exit', 'quit'):
+                return False
+            self._run_once(parsed)
+        return True
+
+    def complete(self, text, state):
+        """Return the next possible completion for 'text'.
+
+        If a command has not been entered, then complete against command list.
+        Otherwise try to call complete_<command> to get list of completions.
+        """
+        ## todo: improve this thing to, eg, complete in the middle of a token
+        if state == 0:
+            origline = readline.get_line_buffer()
+            line = origline.lstrip()
+            stripped = len(origline) - len(line)
+            begidx = readline.get_begidx() - stripped
+            endidx = readline.get_endidx() - stripped
+
+            compfunc = self.complete_default
+            if begidx > 0:
+                parts = self._parse_line(line)
+                if len(parts) > 0:
+                    command = self.lookup(parts[0])
+                    _compfunc = getattr(self, command.complete)
+                    if _compfunc is not None and callable(_compfunc):
+                        compfunc = _compfunc
+            else:
+                compfunc = self.complete_names
+            self.completion_matches = compfunc(text, line, begidx, endidx)
+
+        try:
+            return self.completion_matches[state]
+        except IndexError:
+            return None
+
+    def complete_default(self, *ignored):
+        return []
+
+    def complete_names(self, text, *ignored):
+        commands = self._commands.keys()
+        return [a for a in commands if a.startswith(text)]
+
+    def _parse_line(self, line):
+        import shlex
+        return shlex.split(line)
+
 
 class State(object):
     """
-    Used to keep state of the current invokation.
+    Used to keep state of the current invocation.
     """
     def __init__(self, app, global_options, command, options, arguments):
         self.app = app
@@ -198,6 +344,8 @@ class InvalidUsage(CommandError):
 
 
 class ShowCommandsHelp(CommandError):
-    def __init__(self, message=None, args=None):
-        super(ShowCommandsHelp, self).__init__(message)
-        self.args = args
+    pass
+
+
+class CommandNotFound(CommandError):
+    pass
